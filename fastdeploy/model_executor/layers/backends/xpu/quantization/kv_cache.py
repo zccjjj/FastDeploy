@@ -27,7 +27,7 @@ from fastdeploy.model_executor.layers.quantization.quant_base import (
     QuantMethodBase,
 )
 from fastdeploy.model_executor.layers.utils import get_tensor
-from fastdeploy.model_executor.utils import set_weight_attrs
+from fastdeploy.model_executor.utils import set_weight_attrs, default_weight_loader
 
 
 class XPUKvCacheQuantConfig(QuantConfigBase):
@@ -139,6 +139,7 @@ class XPUKVCacheMethodBase(QuantMethodBase):
         scale_shape = [layer.fd_config.model_config.num_key_value_heads]
         if self.cache_quant_config.is_channel_wise:
             scale_shape = [layer.kv_num_heads * layer.head_dim]
+            extra_weight_attrs={**extra_weight_attrs,"output_dim":1,"weight_loader":default_weight_loader(layer.fd_config)} # for C8+TP4
 
         layer.cache_k_scale = layer.create_parameter(
             shape=scale_shape,
@@ -220,9 +221,9 @@ class XPUKVCacheMethodBase(QuantMethodBase):
         """
         # cache_k_out_scale is the reciprocal of cache_k_scale
         if layer.cache_k_scale._is_initialized():
-            layer.cache_k_out_scale.set_value(1 / layer.cache_k_scale)  # cache_k_out_scale
+            layer.cache_k_out_scale.set_value(1 / layer.cache_k_scale.cast("float32").reshape_([-1]))  # cache_k_out_scale
         if layer.cache_v_scale._is_initialized():
-            layer.cache_v_out_scale.set_value(1 / layer.cache_v_scale)
+            layer.cache_v_out_scale.set_value(1 / layer.cache_v_scale.cast("float32").reshape_([-1]))
 
     def apply(self, layer):
         """

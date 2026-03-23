@@ -56,7 +56,7 @@ from fastdeploy.model_executor.models.utils import LayerIdPlaceholder as layerid
 from fastdeploy.model_executor.models.utils import WeightMeta
 from fastdeploy.platforms import current_platform
 from fastdeploy.worker.experts_manager import RedundantExpertManger
-
+from fastdeploy.model_executor.utils import set_weight_attrs
 
 class Ernie4_5_MLP(nn.Layer):
     def __init__(
@@ -206,6 +206,12 @@ class Ernie4_5_MoE(nn.Layer):
             with_bias=False,
             skip_quant=True,
             weight_dtype="float32",
+        )
+        set_weight_attrs(
+            self.gate.weight,
+            {
+                "weight_need_transpose": True,
+            },
         )
 
         self.experts = FusedMoE(
@@ -597,6 +603,7 @@ class Ernie4_5_MoeForCausalLM(ModelForCasualLM):
             ("attn.cache_k_scale", "cachek_matmul.in_scale", None, None),
             ("attn.cache_v_scale", "cachev_matmul.in_scale", None, None),
             ("up_gate_proj_in_scale", "up_gate_proj.in_scale", None, None),
+            ("down_proj_in_scale", "down_proj.in_scale", None, None),
         ]
 
         expert_params_mapping = []
