@@ -42,6 +42,7 @@ class XPUKvCacheQuantConfig(QuantConfigBase):
         super().__init__()
         self.kv_cache_quant_type = kv_cache_quant_type
         self.is_channel_wise = is_channel_wise
+        self.has_zero_point = has_zero_point
 
         try:
             self.quant_type = KvCacheQuantzationTypes(kv_cache_quant_type)

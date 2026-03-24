@@ -169,6 +169,8 @@ def get_quantization_config(quantization: str) -> Type[QuantConfigBase]:
     from .weight_only import WeightOnlyConfig, WINT4Config, WINT8Config
     from .wfp8afp8 import WFP8AFP8Config
     from .wint2 import WINT2Config
+    from ..backends.xpu.quantization.kv_cache import XPUKvCacheQuantConfig
+    from fastdeploy.platforms import current_platform
 
     if envs.FD_MOE_MXFP4_BACKEND is not None:
         from .mxfp4 import MXFP4Config
@@ -190,5 +192,10 @@ def get_quantization_config(quantization: str) -> Type[QuantConfigBase]:
     }
     if envs.FD_MOE_MXFP4_BACKEND is not None:
         method_to_config["mxfp4"] = MXFP4Config
+
+    # For XPU platform, use XPUKvCacheQuantConfig instead of KvCacheQuantConfig
+    if quantization == "kvcache" and current_platform.is_xpu():
+        from fastdeploy.model_executor.layers.backends.xpu.quantization.kv_cache import XPUKvCacheQuantConfig
+        method_to_config["kvcache"] = XPUKvCacheQuantConfig
 
     return method_to_config[quantization]
