@@ -218,8 +218,8 @@ class XPUAttentionBackend(AttentionBackend):
             forward_meta.prefix_len,
             cache_k_scale,
             cache_v_scale,
-            cache_k_out_scale.astype("bfloat16") if cache_k_out_scale is not None else None, # for C8
-            cache_v_out_scale.astype("bfloat16") if cache_v_out_scale is not None else None, # for C8
+            cache_k_out_scale,
+            cache_v_out_scale,
             cache_k_zp.astype("bfloat16") if cache_k_zp is not None else None, # for C8
             cache_v_zp.astype("bfloat16") if cache_v_zp is not None else None, # for C8
             None,  # shift

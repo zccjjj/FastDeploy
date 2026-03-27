@@ -161,7 +161,7 @@ class XPUKVCacheMethodBase(QuantMethodBase):
                     start = _tp_rank * kv_heads_per_rank
                     end = start + kv_heads_per_rank
                     loaded_weight = loaded_weight[start:end, :]
-                loaded_weight = loaded_weight.reshape(param.shape).cast(param.dtype)
+                loaded_weight = (127/loaded_weight).reshape(param.shape).cast(param.dtype)
                 param.copy_(loaded_weight, False)
             def _kv_zp_weight_loader(param, loaded_weight, shard_id=None,
                                      _total_kv_heads=total_kv_heads,
@@ -263,9 +263,9 @@ class XPUKVCacheMethodBase(QuantMethodBase):
         """
         # cache_k_out_scale is the reciprocal of cache_k_scale
         if layer.cache_k_scale._is_initialized():
-            layer.cache_k_out_scale.set_value(1 / layer.cache_k_scale.cast("float32").reshape_([-1]))  # cache_k_out_scale
+            layer.cache_k_out_scale.set_value(127 / layer.cache_k_scale.cast("float32").reshape_([-1]))  # cache_k_out_scale
         if layer.cache_v_scale._is_initialized():
-            layer.cache_v_out_scale.set_value(1 / layer.cache_v_scale.cast("float32").reshape_([-1]))
+            layer.cache_v_out_scale.set_value(127 / layer.cache_v_scale.cast("float32").reshape_([-1]))
 
     def apply(self, layer):
         """

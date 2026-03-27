@@ -207,12 +207,16 @@ class Ernie4_5_MoE(nn.Layer):
             skip_quant=True,
             weight_dtype="float32",
         )
-        set_weight_attrs(
-            self.gate.weight,
-            {
-                "weight_need_transpose": True,
-            },
-        )
+        if (not hasattr(fd_config.quant_config, "modules_to_quant")
+            or fd_config.quant_config.modules_to_quant == {}
+            or layer_id > 7
+           ): # 非跳层量化全部要转置，跳层量化只转置W4A8的部分
+            set_weight_attrs(
+                self.gate.weight,
+                {
+                    "weight_need_transpose": True,
+                },
+            )
 
         self.experts = FusedMoE(
             fd_config=fd_config,
