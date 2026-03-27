@@ -235,9 +235,11 @@ class ResourceManagerV1(ResourceManager):
         return len(request.block_tables) * self.config.cache_config.block_size
 
     def get_new_block_nums(self, request: Request, num_new_tokens: int):
+        # Account for preallocated blocks that haven't been added to block_tables yet
+        preallocated_count = len(getattr(request, 'preallocated_blocks', []))
         block_num = (
             request.num_computed_tokens + num_new_tokens + self.config.cache_config.block_size - 1
-        ) // self.config.cache_config.block_size - len(request.block_tables)
+        ) // self.config.cache_config.block_size - len(request.block_tables) - preallocated_count
 
         if self.config.speculative_config.method is not None:
             block_num = min(block_num + 1, self.config.cache_config.max_block_num_per_seq)
@@ -800,8 +802,14 @@ class ResourceManagerV1(ResourceManager):
                         self.allocated_slots(request) - request.num_total_tokens
                         <= self.config.cache_config.prealloc_dec_block_slot_num_threshold
                     ):
+                        # First, consume any preallocated blocks before allocating new ones
+                        preallocated = getattr(request, 'preallocated_blocks', [])
+                        if preallocated:
+                            request.block_tables.extend(preallocated)
+                            request.preallocated_blocks = []
+                            scheduled_reqs.append(self._prepare_decode_task(request))
                         # Allocation for next decoding blocks
-                        if self.cache_manager.can_allocate_gpu_blocks(self.config.cache_config.enc_dec_block_num):
+                        elif self.cache_manager.can_allocate_gpu_blocks(self.config.cache_config.enc_dec_block_num):
                             llm_logger.debug(
                                 f"schedule decoding task: {request} request.num_total_tokens {request.num_total_tokens} request.num_computed_tokens {request.num_computed_tokens}"
                             )
@@ -1397,9 +1405,10 @@ class ResourceManagerV1(ResourceManager):
         """
         assert self.config.scheduler_config.splitwise_role == "decode", "Only D instance can call this method"
         request.need_prefill_tokens = len(request.prompt_token_ids)
-        need_prealloc_prefill_blocks = (
+        actual_prefill_blocks = (
             request.need_prefill_tokens + self.config.cache_config.block_size - 1
-        ) // self.config.cache_config.block_size + self.config.cache_config.enc_dec_block_num
+        ) // self.config.cache_config.block_size
+        need_prealloc_prefill_blocks = actual_prefill_blocks + self.config.cache_config.enc_dec_block_num
 
         with self.lock:
             if len(self.waiting) > 0:
@@ -1410,11 +1419,16 @@ class ResourceManagerV1(ResourceManager):
             if not self.cache_manager.can_allocate_gpu_blocks(total_need_blocks):
                 return False
 
-            request.block_tables = self.cache_manager.allocate_gpu_blocks(
+            all_blocks = self.cache_manager.allocate_gpu_blocks(
                 need_prealloc_prefill_blocks, request.request_id
             )
+            # Only put the blocks that will actually contain prefilled KV data into block_tables.
+            # The extra enc_dec_block_num blocks are pre-reserved for future decode tokens and
+            # stored separately to avoid the attention kernel reading uninitialized KV cache data.
+            request.block_tables = all_blocks[:actual_prefill_blocks]
+            request.preallocated_blocks = all_blocks[actual_prefill_blocks:]
             request.num_computed_tokens = request.need_prefill_tokens
-            request.disaggregate_info["block_tables"] = request.block_tables
+            request.disaggregate_info["block_tables"] = all_blocks
             allocated_position = self.get_available_position()
             request.idx = allocated_position
             self.tasks_list[request.idx] = request
@@ -1464,6 +1478,12 @@ class ResourceManagerV1(ResourceManager):
             self.running.append(request)
 
     def _free_blocks(self, request: Request):
+        # Also free any preallocated blocks that haven't been consumed yet
+        preallocated = getattr(request, 'preallocated_blocks', [])
+        if preallocated:
+            self.cache_manager.recycle_gpu_blocks(preallocated, request.request_id)
+            request.preallocated_blocks = []
+
         if self.config.cache_config.enable_prefix_caching and self.config.scheduler_config.splitwise_role != "decode":
             self.cache_manager.release_block_ids(request)
             self.cache_manager.recycle_gpu_blocks(
