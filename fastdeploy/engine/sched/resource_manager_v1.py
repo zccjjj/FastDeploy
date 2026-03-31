@@ -919,6 +919,12 @@ class ResourceManagerV1(ResourceManager):
                         request.block_tables.extend(
                             self.cache_manager.allocate_gpu_blocks(num_new_block, request.request_id)
                         )
+                        # Merge preallocated blocks (from PD disaggregation) into block_tables
+                        # so the attention kernel can access all reserved blocks.
+                        preallocated = getattr(request, 'preallocated_blocks', [])
+                        if preallocated:
+                            request.block_tables.extend(preallocated)
+                            request.preallocated_blocks = []
                         # Prepare prefill task
                         scheduled_reqs.append(self._prepare_prefill_task(request, num_new_tokens))
                     else:  # Not enough blocks to allocate, trigger preemption
@@ -928,6 +934,11 @@ class ResourceManagerV1(ResourceManager):
                         request.block_tables.extend(
                             self.cache_manager.allocate_gpu_blocks(num_new_block, request.request_id)
                         )
+                        # Merge preallocated blocks (from PD disaggregation) into block_tables
+                        preallocated = getattr(request, 'preallocated_blocks', [])
+                        if preallocated:
+                            request.block_tables.extend(preallocated)
+                            request.preallocated_blocks = []
                         # Prepare prefill task
                         scheduled_reqs.append(self._prepare_prefill_task(request, num_new_tokens))
                     token_budget -= num_new_tokens
